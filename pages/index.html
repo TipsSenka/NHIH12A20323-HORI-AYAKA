@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloudflare API Lab</title>
+    <style>
+        :root {
+            --ink: #17252c;
+            --muted: #62737a;
+            --paper: #f5f1e8;
+            --panel: rgba(255, 255, 255, 0.78);
+            --line: #d9d2c4;
+            --accent: #e6673f;
+            --accent-dark: #a7432c;
+            --teal: #2d7770;
+            --shadow: 0 20px 60px rgba(47, 57, 49, 0.12);
+        }
+
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--ink);
+            background: radial-gradient(circle at 88% 4%, #f6d7ba 0, transparent 31%), linear-gradient(135deg, #f4eee2 0%, #edf3ed 100%);
+            font-family: Georgia, "Yu Mincho", "Hiragino Mincho ProN", serif;
+        }
+        main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 56px 0 72px; }
+        .eyebrow { color: var(--accent-dark); font: 700 0.78rem/1.2 Arial, sans-serif; letter-spacing: 0.15em; text-transform: uppercase; }
+        h1 { max-width: 680px; margin: 14px 0 12px; font-size: clamp(2.6rem, 7vw, 5.8rem); line-height: 0.98; letter-spacing: 0; }
+        .intro { max-width: 610px; margin: 0 0 34px; color: var(--muted); font-size: 1.08rem; line-height: 1.8; }
+        .control-bar, .result-panel { background: var(--panel); border: 1px solid rgba(217, 210, 196, 0.9); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
+        .control-bar { display: flex; gap: 12px; align-items: end; padding: 18px; }
+        label { display: grid; gap: 7px; flex: 1; color: var(--muted); font: 700 0.75rem/1.2 Arial, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; }
+        input, button { min-height: 46px; border-radius: 2px; font: inherit; }
+        input { width: 100%; padding: 0 13px; border: 1px solid var(--line); color: var(--ink); background: #fffdf8; }
+        button { padding: 0 18px; border: 0; color: #fffdf8; background: var(--ink); cursor: pointer; font: 700 0.9rem/1 Arial, sans-serif; transition: transform 160ms ease, background 160ms ease; }
+        button:hover { background: var(--accent-dark); transform: translateY(-2px); }
+        .endpoint-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 18px 0; }
+        .endpoint { min-height: 128px; padding: 17px; border: 1px solid var(--line); background: rgba(255, 253, 248, 0.55); cursor: pointer; text-align: left; }
+        .endpoint strong { display: block; margin-bottom: 12px; font-size: 1.2rem; }
+        .endpoint span { color: var(--muted); font: 0.82rem/1.5 Arial, sans-serif; }
+        .endpoint.active { border-color: var(--teal); box-shadow: inset 0 -4px 0 var(--teal); }
+        .result-panel { min-height: 270px; padding: 24px; }
+        .result-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 18px; }
+        .result-heading h2 { margin: 0; font-size: 1.35rem; }
+        #status { color: var(--teal); font: 700 0.78rem/1.2 Arial, sans-serif; letter-spacing: 0.08em; text-transform: uppercase; }
+        pre { min-height: 175px; margin: 0; padding: 18px; overflow: auto; color: #e8f0e7; background: #1d2d2c; font: 0.9rem/1.65 Consolas, monospace; white-space: pre-wrap; }
+        footer { margin-top: 18px; color: var(--muted); font: 0.75rem/1.5 Arial, sans-serif; }
+        @media (max-width: 720px) {
+            main { padding-top: 32px; }
+            .control-bar { display: grid; }
+            .endpoint-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <div class="eyebrow">HAL / Cloudflare Workers</div>
+        <h1>APIを、<br>触って確かめる。</h1>
+        <p class="intro">Cloudflare Workers で公開した小さな API を、Pages から呼び出します。エンドポイントを選び、レスポンスの形とステータスを確認できます。</p>
+
+        <section class="control-bar" aria-label="接続先設定">
+            <label>Worker base URL
+                <input id="base-url" type="url" value="https://senka-api.takahashi-masa.workers.dev" spellcheck="false">
+            </label>
+            <label>名前（hello 用）
+                <input id="name" type="text" value="山田" maxlength="40" placeholder="名前を入力">
+            </label>
+            <button id="send" type="button">リクエスト送信</button>
+        </section>
+
+        <section class="endpoint-grid" aria-label="APIエンドポイント">
+            <button class="endpoint active" data-path="/api/course" type="button"><strong>course</strong><span>講座情報を取得</span></button>
+            <button class="endpoint" data-path="/api/hello" type="button"><strong>hello</strong><span>名前を添えて挨拶</span></button>
+            <button class="endpoint" data-path="/api/fortune" type="button"><strong>fortune</strong><span>今日の運勢を取得</span></button>
+            <button class="endpoint" data-path="/api/events" type="button"><strong>events</strong><span>イベント一覧を取得</span></button>
+        </section>
+
+        <section class="result-panel" aria-live="polite">
+            <div class="result-heading"><h2 id="selected-path">GET /api/course</h2><span id="status">ready</span></div>
+            <pre id="result">送信ボタンを押すとレスポンスを表示します。</pre>
+        </section>
+        <footer>接続先はデプロイ後の Worker URL に変更できます。入力値はこのブラウザ内だけで利用します。</footer>
+    </main>
+    <script>
+        const baseUrlInput = document.querySelector("#base-url");
+        const nameInput = document.querySelector("#name");
+        const sendButton = document.querySelector("#send");
+        const result = document.querySelector("#result");
+        const status = document.querySelector("#status");
+        const selectedPath = document.querySelector("#selected-path");
+        const endpointButtons = [...document.querySelectorAll(".endpoint")];
+        let selectedPathValue = "/api/course";
+
+        function selectEndpoint(button) {
+            endpointButtons.forEach((item) => item.classList.toggle("active", item === button));
+            selectedPathValue = button.dataset.path;
+            selectedPath.textContent = `GET ${selectedPathValue}`;
+        }
+
+        async function requestApi() {
+            const baseUrl = baseUrlInput.value.trim().replace(/\/$/, "");
+            const url = new URL(`${baseUrl}${selectedPathValue}`);
+            if (selectedPathValue === "/api/hello" && nameInput.value.trim()) {
+                url.searchParams.set("name", nameInput.value.trim());
+            }
+            status.textContent = "loading";
+            result.textContent = "リクエスト中...";
+            sendButton.disabled = true;
+            try {
+                const response = await fetch(url);
+                const body = await response.json();
+                status.textContent = `${response.status} ${response.ok ? "ok" : "error"}`;
+                result.textContent = JSON.stringify(body, null, 2);
+            } catch (error) {
+                status.textContent = "network error";
+                result.textContent = JSON.stringify({ error: "Worker に接続できませんでした", detail: error.message }, null, 2);
+            } finally {
+                sendButton.disabled = false;
+            }
+        }
+
+        endpointButtons.forEach((button) => button.addEventListener("click", () => selectEndpoint(button)));
+        sendButton.addEventListener("click", requestApi);
+    </script>
+</body>
+</html>
